@@ -41,7 +41,7 @@ st.header("Analisis Data Eksplorasi Interaktif")
 
 analysis_option = st.radio(
     "Pilih Tampilan Analisis Data:",
-    ("Statistik Deskriptif", "Distribusi Frekuensi (f)", "Scatter Plot (alpha vs SSPL)"),
+    ("Statistik Deskriptif", "Heatmap Korelasi", "Scatter Plot: Semua Fitur vs SSPL"), # Opsi baru
     key="analysis_selector"
 )
 
@@ -49,23 +49,41 @@ if analysis_option == "Statistik Deskriptif":
     st.subheader("Statistik Deskriptif Seluruh Data")
     st.write(df.describe())
 
-elif analysis_option == "Distribusi Frekuensi (f)":
-    st.subheader("Distribusi Frekuensi (f)")
-    fig_hist, ax_hist = plt.subplots(figsize=(10, 6))
-    sns.histplot(df['f'], bins=30, kde=True, ax=ax_hist)
-    ax_hist.set_title('Distribusi Frekuensi (f)')
-    ax_hist.set_xlabel('Frekuensi (Hz)')
-    ax_hist.set_ylabel('Jumlah Data')
-    st.pyplot(fig_hist)
+elif analysis_option == "Heatmap Korelasi":
+    st.subheader("Heatmap Korelasi Antar Fitur dan Target")
+    fig_corr, ax_corr = plt.subplots(figsize=(10, 8))
+    corr_matrix = df.corr()
+    sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt=".2f", linewidths=.5, ax=ax_corr)
+    ax_corr.set_title('Matriks Korelasi')
+    st.pyplot(fig_corr)
 
-elif analysis_option == "Scatter Plot (alpha vs SSPL)":
-    st.subheader("Hubungan Sudut Serang (alpha) dengan Sound Pressure Level (SSPL)")
-    fig_scatter, ax_scatter = plt.subplots(figsize=(10, 6))
-    sns.scatterplot(x='alpha', y='SSPL', data=df, ax=ax_scatter, hue='U_infinity', size='c', sizes=(20, 200), alpha=0.7)
-    ax_scatter.set_title('Scatter Plot: Sudut Serang vs. SPL')
-    ax_scatter.set_xlabel('Sudut Serang (alpha, derajat)')
-    ax_scatter.set_ylabel('Sound Pressure Level (SSPL, dB)')
-    st.pyplot(fig_scatter)
+elif analysis_option == "Scatter Plot: Semua Fitur vs SSPL":
+    st.subheader("Scatter Plot: Fitur vs Sound Pressure Level (SSPL)")
+    # Daftar fitur yang ingin di-plot (kecuali target SSPL itu sendiri)
+    features_to_plot = ['f', 'alpha', 'c', 'U_infinity', 'delta']
+    
+    # Membuat plot untuk setiap fitur vs SSPL
+    num_features = len(features_to_plot)
+    # Sesuaikan ukuran grid plot agar tidak terlalu padat
+    cols = 2 # Jumlah kolom dalam grid plot
+    rows = (num_features + cols - 1) // cols # Hitung jumlah baris yang dibutuhkan
+    
+    fig_all_scatter, axes = plt.subplots(rows, cols, figsize=(cols * 6, rows * 5))
+    axes = axes.flatten() # Ratakan array axes untuk iterasi mudah
+
+    for i, feature in enumerate(features_to_plot):
+        sns.scatterplot(x=feature, y='SSPL', data=df, ax=axes[i], alpha=0.6)
+        axes[i].set_title(f'{feature} vs SSPL')
+        axes[i].set_xlabel(feature)
+        axes[i].set_ylabel('SSPL (dB)')
+    
+    # Sembunyikan subplot yang kosong jika ada
+    for j in range(i + 1, len(axes)):
+        fig_all_scatter.delaxes(axes[j])
+
+    plt.tight_layout() # Penyesuaian layout agar tidak tumpang tindih
+    st.pyplot(fig_all_scatter)
+
 
 st.markdown("---")
 
@@ -94,16 +112,19 @@ if model is not None:
     st.write("Gunakan slider di sidebar kiri untuk menginput nilai fitur dan mendapatkan prediksi SSPL.")
 
     st.sidebar.header("Input Fitur untuk Prediksi")
+    
+    # --- Penyesuaian Range Slider ---
+    # Min value dari 0, Max value 1.1x dari nilai maks di data
     frequency = st.sidebar.slider("1. Frekuensi (f) [Hz]",
-                                  float(df['f'].min()), float(df['f'].max()), float(df['f'].mean()))
+                                  0.0, float(df['f'].max() * 1.1), float(df['f'].mean()))
     angle = st.sidebar.slider("2. Sudut Serang (alpha) [derajat]",
-                              float(df['alpha'].min()), float(df['alpha'].max()), float(df['alpha'].mean()))
+                              0.0, float(df['alpha'].max() * 1.1), float(df['alpha'].mean()))
     chord_length = st.sidebar.slider("3. Panjang Chord (c) [meter]",
-                                     float(df['c'].min()), float(df['c'].max()), float(df['c'].mean()))
+                                     0.0, float(df['c'].max() * 1.1), float(df['c'].mean()))
     free_stream_velocity = st.sidebar.slider("4. Kecepatan Aliran Bebas (U_infinity) [m/s]",
-                                             float(df['U_infinity'].min()), float(df['U_infinity'].max()), float(df['U_infinity'].mean()))
+                                             0.0, float(df['U_infinity'].max() * 1.1), float(df['U_infinity'].mean()))
     suction_side_displacement = st.sidebar.slider("5. Perpindahan Sisi Hisap (delta) [meter]",
-                                                  float(df['delta'].min()), float(df['delta'].max()), float(df['delta'].mean()))
+                                                  0.0, float(df['delta'].max() * 1.1), float(df['delta'].mean()))
 
     input_data = np.array([[frequency, angle, chord_length, free_stream_velocity, suction_side_displacement]])
     prediction = model.predict(input_data)[0]
@@ -111,14 +132,14 @@ if model is not None:
     st.subheader("Hasil Prediksi SSPL")
 
     # --- Logika untuk menentukan warna dan kategori (Sesuai Konteks Pesawat Komersial) ---
-    color = "black" # Warna default jika tidak masuk kategori
+    color = "black"
     category_text = "Tidak Terdefinisi"
 
     if prediction > 120:
         color = "red"
         category_text = "Buruk (Kontribusi kebisingan sangat tinggi)"
     elif 100 <= prediction <= 120:
-        color = "orange" # Kuning diganti orange agar lebih jelas di berbagai background
+        color = "orange"
         category_text = "Cukup Ideal (Kontribusi kebisingan moderat)"
     elif 80 <= prediction < 100:
         color = "blue"
@@ -127,9 +148,7 @@ if model is not None:
         color = "green"
         category_text = "Sangat Ideal (Kontribusi kebisingan sangat rendah)"
     
-    # Menampilkan hasil prediksi dengan warna dinamis
     st.markdown(f"Dengan input fitur yang diberikan, Tingkat Tekanan Suara (Sound Pressure Level / SSPL) yang diprediksi adalah: **<span style='color:{color}; font-size:24px;'>{prediction:.2f} dB</span>**", unsafe_allow_html=True)
-    # Menampilkan kategori kebisingan di bawahnya
     st.markdown(f"**Kategori Kebisingan:** <span style='color:{color}; font-size:18px;'>{category_text}</span>", unsafe_allow_html=True)
 
 else:
